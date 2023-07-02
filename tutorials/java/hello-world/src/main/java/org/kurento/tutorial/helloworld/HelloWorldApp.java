@@ -17,12 +17,21 @@
 package org.kurento.tutorial.helloworld;
 
 import org.kurento.client.KurentoClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.http.server.ServletServerHttpResponse;
+import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+import org.springframework.web.socket.server.HandshakeInterceptor;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
 /**
@@ -32,6 +41,8 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
 @EnableWebSocket
 public class HelloWorldApp implements WebSocketConfigurer
 {
+  private static final Logger log = LoggerFactory.getLogger(Application.class);
+  
   @Bean
   public HelloWorldHandler handler()
   {
@@ -54,7 +65,36 @@ public class HelloWorldApp implements WebSocketConfigurer
   @Override
   public void registerWebSocketHandlers(WebSocketHandlerRegistry registry)
   {
-    registry.addHandler(handler(), "/helloworld");
+    registry.addHandler(handler(), "/helloworld")
+      .addInterceptors(new HandshakeInterceptor() {
+                    @Override
+                    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                                                   WebSocketHandler wsHandler, Map<String, Object> attributes)
+                            throws Exception {
+                        if (request instanceof ServletServerHttpRequest) {
+                            ServletServerHttpRequest servletRequest = (ServletServerHttpRequest) request;
+                            HttpHeaders headers = servletRequest.getHeaders();
+                            if (headers.containsKey(HttpHeaders.COOKIE) && headers.get(HttpHeaders.COOKIE).contains("awsappcookie")) {
+                                log.info("Request already contains cookie header, path - {}", servletRequest.getURI().getPath());
+                            } else {
+                                if (response instanceof ServletServerHttpResponse) {
+                                    ServletServerHttpResponse servletResponse = (ServletServerHttpResponse) response;
+                                    HttpHeaders responseHeaders = servletResponse.getHeaders();
+                                    responseHeaders.add(HttpHeaders.SET_COOKIE, "awsappcookie="+System.currentTimeMillis());
+                                    attributes.put("headers", responseHeaders);
+                                    log.info("Cookie header is added to response, path - {}", servletRequest.getURI().getPath());
+                                }
+                            }
+                        }
+                        return true;
+                    }
+
+                    @Override
+                    public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                                               WebSocketHandler wsHandler, Exception ex) {
+                        // No need for implementation
+                    }
+                });
   }
 
   public static void main(String[] args) throws Exception
